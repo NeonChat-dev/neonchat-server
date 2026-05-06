@@ -13,6 +13,7 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const users = new Map();
 const messages = [];
+const privateMessages = new Map();
 const channels = [
   { id: 'general', name: 'Основной', type: 'text' },
   { id: 'voice-lobby', name: 'Войс-лобби', type: 'voice' },
@@ -53,11 +54,18 @@ app.get('/api/messages/:channelId', (req, res) => {
   res.json(messages.filter(m => m.channel === req.params.channelId).slice(-100));
 });
 
+app.get('/api/private/:userId', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const chatKey = [req.params.userId, req.query.with].sort().join('_');
+  const msgs = privateMessages.get(chatKey) || [];
+  res.json(msgs.slice(-100));
+});
+
 io.on('connection', (socket) => {
   console.log('Connected: ' + socket.id);
 
   socket.on('user:join', ({ username, avatar }) => {
-    const user = { id: socket.id, username: username  'Guest', avatar: avatar  '', status: 'online' };
+    const user = { id: socket.id, username: username || 'Guest', avatar: avatar || '', status: 'online' };
     users.set(socket.id, user);
     io.emit('users:update', Array.from(users.values()));
     io.emit('message:new', { id: uuidv4(), userId: 'system', username: 'NeonChat', text: user.username + ' joined', channel: 'general', timestamp: Date.now(), system: true });
@@ -76,6 +84,20 @@ io.on('connection', (socket) => {
     messages.push(msg);
     if (messages.length > 500) messages.shift();
     io.emit('message:new', msg);
+  });
+
+  socket.on('private:send', ({ to, text }) => {
+    const user = users.get(socket.id);
+    const targetUser = users.get(to);
+    if (!user || !targetUser || !text.trim()) return;
+    const chatKey = [socket.id, to].sort().join('_');
+    const msg = { id: uuidv4(), from: socket.id, to: to, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), timestamp: Date.now() };
+    if (!privateMessages.has(chatKey)) privateMessages.set(chatKey, []);
+    privateMessages.get(chatKey).push(msg);
+    if (privateMessages.get(chatKey).length > 500) privateMessages.get(chatKey).shift();
+    io.to(socket.id).emit('private:new', msg);
+    io.to(to).emit('private:new', msg);
+    io.to(to).emit('private:notify', { from: socket.id, username: user.username });
   });
 
   socket.on('typing:start', ({ channel }) => {
