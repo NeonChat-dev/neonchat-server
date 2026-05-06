@@ -32,7 +32,6 @@ function escapeHTML(str) {
 }
 
 const messageLimits = new Map();
-
 app.get('/', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send('NeonChat Server is running!');
@@ -58,8 +57,7 @@ app.get('/api/messages/:channelId', (req, res) => {
 app.get('/api/private/:userId', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const chatKey = [req.params.userId, req.query.with].sort().join('_');
-  const msgs = privateMessages.get(chatKey) || [];
-  res.json(msgs.slice(-100));
+  res.json((privateMessages.get(chatKey) || []).slice(-100));
 });
 
 app.post('/api/login', (req, res) => {
