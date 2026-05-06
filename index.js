@@ -12,6 +12,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 const users = new Map();
+const accounts = new Map();
 const messages = [];
 const privateMessages = new Map();
 const channels = [
@@ -61,6 +62,35 @@ app.get('/api/private/:userId', (req, res) => {
   res.json(msgs.slice(-100));
 });
 
+app.post('/api/login', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { username, password } = req.body;
+  if (!username || !password) return res.json({ ok: false, error: 'Заполни все поля' });
+  if (accounts.has(username)) {
+    if (accounts.get(username).password === password) {
+      return res.json({ ok: true, username });
+    } else {
+      return res.json({ ok: false, error: 'Неверный пароль' });
+    }
+  } else {
+    accounts.set(username, { username, password, createdAt: Date.now() });
+    return res.json({ ok: true, username, new: true });
+  }
+});
+
+app.post('/api/profile', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const { oldUsername, newUsername, password } = req.body;
+  if (!accounts.has(oldUsername)) return res.json({ ok: false, error: 'Пользователь не найден' });
+  if (accounts.get(oldUsername).password !== password) return res.json({ ok: false, error: 'Неверный пароль' });
+  if (accounts.has(newUsername) && newUsername !== oldUsername) return res.json({ ok: false, error: 'Имя занято' });
+  const acc = accounts.get(oldUsername);
+  accounts.delete(oldUsername);
+  acc.username = newUsername;
+  accounts.set(newUsername, acc);
+  return res.json({ ok: true, username: newUsername });
+});
+
 io.on('connection', (socket) => {
   console.log('Connected: ' + socket.id);
 
@@ -69,6 +99,16 @@ io.on('connection', (socket) => {
     users.set(socket.id, user);
     io.emit('users:update', Array.from(users.values()));
     io.emit('message:new', { id: uuidv4(), userId: 'system', username: 'NeonChat', text: user.username + ' joined', channel: 'general', timestamp: Date.now(), system: true });
+  });
+
+  socket.on('user:update', ({ username, avatar }) => {
+    const user = users.get(socket.id);
+    if (user) {
+      user.username = username;
+      user.avatar = avatar || user.avatar;
+      users.set(socket.id, user);
+      io.emit('users:update', Array.from(users.values()));
+    }
   });
 
   socket.on('message:send', ({ text, channel }) => {
@@ -94,7 +134,6 @@ io.on('connection', (socket) => {
     const msg = { id: uuidv4(), from: socket.id, to: to, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), timestamp: Date.now() };
     if (!privateMessages.has(chatKey)) privateMessages.set(chatKey, []);
     privateMessages.get(chatKey).push(msg);
-    if (privateMessages.get(chatKey).length > 500) privateMessages.get(chatKey).shift();
     io.to(socket.id).emit('private:new', msg);
     io.to(to).emit('private:new', msg);
     io.to(to).emit('private:notify', { from: socket.id, username: user.username });
