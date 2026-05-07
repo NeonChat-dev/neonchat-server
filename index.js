@@ -15,7 +15,7 @@ const users = new Map();
 const accounts = new Map();
 const messages = [];
 const privateMessages = new Map();
-const verifiedUsers = new Set(['NeonChat','developer']);
+const verifiedUsers = new Set(['NeonChat','developer','Dev','dev']);
 const channels = [
   { id: 'general', name: 'Основной', type: 'text' },
   { id: 'voice-lobby', name: 'Войс-лобби', type: 'voice' },
@@ -89,7 +89,7 @@ app.post('/api/profile', (req, res) => {
   acc.username = newUsername;
   if (avatar) acc.avatar = avatar;
   accounts.set(newUsername, acc);
-  return res.json({ ok: true, username: newUsername, avatar: acc.avatar });
+  return res.json({ ok: true, username: newUsername, avatar: acc.avatar, verified: verifiedUsers.has(newUsername) });
 });
 
 io.on('connection', (socket) => {
@@ -160,4 +160,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log('NeonChat server started on port ' + PORT));
+server.listen(PORT, () => console.log('NeonChat server started on port ' + PORT));    
