@@ -15,6 +15,7 @@ const users = new Map();
 const accounts = new Map();
 const messages = [];
 const privateMessages = new Map();
+const verifiedUsers = new Set(['NeonChat','developer']);
 const channels = [
   { id: 'general', name: 'Основной', type: 'text' },
   { id: 'voice-lobby', name: 'Войс-лобби', type: 'voice' },
@@ -32,6 +33,7 @@ function escapeHTML(str) {
 }
 
 const messageLimits = new Map();
+
 app.get('/', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send('NeonChat Server is running!');
@@ -66,34 +68,36 @@ app.post('/api/login', (req, res) => {
   if (!username || !password) return res.json({ ok: false, error: 'Заполни все поля' });
   if (accounts.has(username)) {
     if (accounts.get(username).password === password) {
-      return res.json({ ok: true, username });
+      return res.json({ ok: true, username, verified: verifiedUsers.has(username) });
     } else {
       return res.json({ ok: false, error: 'Неверный пароль' });
     }
   } else {
-    accounts.set(username, { username, password, createdAt: Date.now() });
-    return res.json({ ok: true, username, new: true });
+    accounts.set(username, { username, password, createdAt: Date.now(), avatar: '' });
+    return res.json({ ok: true, username, new: true, verified: verifiedUsers.has(username) });
   }
 });
 
 app.post('/api/profile', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const { oldUsername, newUsername, password } = req.body;
+  const { oldUsername, newUsername, password, avatar } = req.body;
   if (!accounts.has(oldUsername)) return res.json({ ok: false, error: 'Пользователь не найден' });
   if (accounts.get(oldUsername).password !== password) return res.json({ ok: false, error: 'Неверный пароль' });
   if (accounts.has(newUsername) && newUsername !== oldUsername) return res.json({ ok: false, error: 'Имя занято' });
   const acc = accounts.get(oldUsername);
   accounts.delete(oldUsername);
   acc.username = newUsername;
+  if (avatar) acc.avatar = avatar;
   accounts.set(newUsername, acc);
-  return res.json({ ok: true, username: newUsername });
+  return res.json({ ok: true, username: newUsername, avatar: acc.avatar });
 });
 
 io.on('connection', (socket) => {
   console.log('Connected: ' + socket.id);
 
   socket.on('user:join', ({ username, avatar }) => {
-    const user = { id: socket.id, username: username || 'Guest', avatar: avatar || '', status: 'online' };
+    const verified = verifiedUsers.has(username);
+    const user = { id: socket.id, username: username || 'Guest', avatar: avatar || '', status: 'online', verified };
     users.set(socket.id, user);
     io.emit('users:update', Array.from(users.values()));
     io.emit('message:new', { id: uuidv4(), userId: 'system', username: 'NeonChat', text: user.username + ' joined', channel: 'general', timestamp: Date.now(), system: true });
@@ -104,6 +108,7 @@ io.on('connection', (socket) => {
     if (user) {
       user.username = username;
       user.avatar = avatar || user.avatar;
+      user.verified = verifiedUsers.has(username);
       users.set(socket.id, user);
       io.emit('users:update', Array.from(users.values()));
     }
@@ -118,7 +123,7 @@ io.on('connection', (socket) => {
     if (recent.length > 3) return socket.emit('error', { text: 'Too fast!' });
     recent.push(now);
     messageLimits.set(socket.id, recent);
-    const msg = { id: uuidv4(), userId: user.id, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), channel, timestamp: now };
+    const msg = { id: uuidv4(), userId: user.id, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), channel, timestamp: now, verified: user.verified };
     messages.push(msg);
     if (messages.length > 500) messages.shift();
     io.emit('message:new', msg);
@@ -129,12 +134,11 @@ io.on('connection', (socket) => {
     const targetUser = users.get(to);
     if (!user || !targetUser || !text.trim()) return;
     const chatKey = [socket.id, to].sort().join('_');
-    const msg = { id: uuidv4(), from: socket.id, to: to, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), timestamp: Date.now() };
+    const msg = { id: uuidv4(), from: socket.id, to: to, username: user.username, avatar: user.avatar, text: escapeHTML(text.trim()), timestamp: Date.now(), verified: user.verified };
     if (!privateMessages.has(chatKey)) privateMessages.set(chatKey, []);
     privateMessages.get(chatKey).push(msg);
     io.to(socket.id).emit('private:new', msg);
     io.to(to).emit('private:new', msg);
-    io.to(to).emit('private:notify', { from: socket.id, username: user.username });
   });
 
   socket.on('typing:start', ({ channel }) => {
